@@ -10,10 +10,6 @@ export class EndScreen extends Component {
     @property(Label) subtitleText: Label = null;
     @property(Label) finalScoreText: Label = null;
 
-    onLoad() {
-        // Защита: принудительно прячем экраны при старте сцены
-        this.node.active = false;
-    }
 
     update(deltaTime: number) {
         // Бесконечно крутим лучи, если экран активен
@@ -24,7 +20,11 @@ export class EndScreen extends Component {
 
     // Метод, который вызывает Player.ts
     public showScreen(isWin: boolean, score: number) {
+        // Включаем ноду
         this.node.active = true;
+        
+        // ЖЕСТКО задаем нормальный масштаб (отменяем сжатие до нуля)
+        this.node.scale = new Vec3(1, 1, 1);
         
         // Показываем заработанные доллары
         if (this.finalScoreText) {
@@ -40,10 +40,6 @@ export class EndScreen extends Component {
             if (this.subtitleText) this.subtitleText.string = "Try again on the app!";
         }
 
-        // Эффектное появление (выпрыгивание)
-        this.node.scale = new Vec3(0, 0, 0);
-        tween(this.node)
-            .to(0.5, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
-            .start();
+        // ВНИМАНИЕ: Блок с tween(this.node) мы полностью удалили!
     }
 }
