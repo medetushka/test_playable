@@ -29,6 +29,16 @@ export class Player extends Component {
     @property({ tooltip: 'Цвет мелькания при уроне' })
     flashColor: Color = new Color(255, 0, 0, 255); // Чистый красный
 
+    @property({ type: Node, tooltip: 'Нода с рукой' })
+    handNode: Node = null;
+
+    @property({ type: Node, tooltip: 'Нода gamemanager (где висит Spawner)' })
+    gameManagerNode: Node = null;
+
+    @property({ type: [Node], tooltip: 'Ноды фонов (bg1 и bg2)' })
+    bgNodes: Node[] = [];
+
+
     private isJumping: boolean = false;
     private isDead: boolean = false;
     private startY: number = 0;
@@ -47,14 +57,34 @@ export class Player extends Component {
         this.playAnim('idle'); 
     }
 
-    onJump(event: EventTouch) {
+onJump(event: EventTouch) {
         if (!this.isGameStarted) {
-            this.isGameStarted = true;
-            this.playAnim('run');
+            this.isGameStarted = true;      // Меняем флаг
+            this.playAnim('run');           // Запускаем бег
             
+            // Прячем стартовый UI
             if (this.tapTextNode) this.tapTextNode.active = false;
-            return;
+            if (this.handNode) this.handNode.active = false; 
+
+            // ПРОГРАММНО ВКЛЮЧАЕМ СПАВНЕР
+            // ПРОГРАММНО ВКЛЮЧАЕМ СПАВНЕР И ФОН ИЗ ОДНОГО МЕСТА
+            if (this.gameManagerNode) {
+                // Включаем спавнер
+                let spawner = this.gameManagerNode.getComponent('Spawner');
+                if (spawner) spawner.enabled = true;
+
+                // Включаем движение фона
+                let scroller = this.gameManagerNode.getComponent('BgScroller');
+                if (scroller) scroller.enabled = true;
+            }
+
+            // (Блок с this.bgNodes.forEach можно вообще удалить, он больше не нужен)
+
+            return; // Выходим, чтобы первый клик не вызвал прыжок
         }
+
+        // ... дальше идет твой старый код проверки if (this.isJumping || this.isDead) return;
+        // и логика самого прыжка (tween)
 
         if (this.isJumping || this.isDead) return;
         this.isJumping = true;
