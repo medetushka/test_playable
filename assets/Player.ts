@@ -50,13 +50,19 @@ export class Player extends Component {
     @property({ type: [Node], tooltip: 'Ноды фонов (bg1 и bg2)' })
     bgNodes: Node[] = [];
 
+    @property({ type: Node, tooltip: 'Нода WinScreen' })
+    winScreenNode: Node = null;
+
+    @property({ type: Node, tooltip: 'Нода FailScreen' })
+    failScreenNode: Node = null;
 
     private isJumping: boolean = false;
     private isDead: boolean = false;
     private startY: number = 0;
-    public isGameStarted: boolean = false;
+    public isGameStarted: boolean = false;Ы
 
     // --- ФЛАГИ ДЛЯ НОВОЙ ЛОГИКИ ---
+    private isComboCooldown: boolean = false; // Флаг кулдауна для комбо-надписи
     private lives: number = 3;
     private isInvincible: boolean = false; // Флаг текущей неуязвимости
     private spriteComponent: Sprite = null; // Ссылка на спрайт для смены цвета
@@ -205,22 +211,64 @@ onJump(event: EventTouch) {
 
     private die() {
         this.isDead = true;
-        
-        // Гасим все сердца (UIOpacity = 0)
+        console.log("--- DEBUG: DIE CALLED ---");
+
+        // Гасим сердца
         this.heartsUI.forEach(heartNode => {
             const opacity = heartNode.getComponent(UIOpacity);
             if (opacity) opacity.opacity = 0;
         });
 
-        // Включаем анимацию урона и перезагружаем сцену через 2сек
         this.playAnim('damage');
         tween(this.node).stop();
         this.node.setPosition(this.node.position.x, this.startY, 0);
 
+        if (this.gameManagerNode) {
+            let spawner = this.gameManagerNode.getComponent('Spawner');
+            if (spawner) spawner.enabled = false;
+            let scroller = this.gameManagerNode.getComponent('BgScroller');
+            if (scroller) scroller.enabled = false;
+        }
+
+        // --- ДЕБАГ ПОКАЗА ЭКРАНА ---
         this.scheduleOnce(() => {
-            let currentSceneName = director.getScene().name;
-            director.loadScene(currentSceneName);
-        }, 2.0);
+            console.log("--- DEBUG: Showing FailScreen ---");
+            
+            if (!this.failScreenNode) {
+                console.error("ОШИБКА: failScreenNode = null. Ты забыл перетащить ноду в инспектор!");
+                return;
+            }
+
+            let script = this.failScreenNode.getComponent('EndScreen');
+            if (!script) {
+                console.error("ОШИБКА: Скрипт 'EndScreen' не найден на ноде FailScreen!");
+                return;
+            }
+
+            console.log("УСПЕХ: Вызываем showScreen(false, ...)");
+            script.showScreen(false, this.currentScore);
+        }, 0.5);
+    }
+    public win() {
+        if (this.isDead) return; // Если уже мертв, победить нельзя
+        
+        this.isGameStarted = false; // Останавливаем управление
+        this.playAnim('idle'); // Персонаж радостно останавливается
+
+        // ОСТАНАВЛИВАЕМ ФОН И СПАВНЕР
+        if (this.gameManagerNode) {
+            let spawner = this.gameManagerNode.getComponent('Spawner');
+            if (spawner) spawner.enabled = false;
+
+            let scroller = this.gameManagerNode.getComponent('BgScroller');
+            if (scroller) scroller.enabled = false;
+        }
+
+        // ПОКАЗЫВАЕМ ЭКРАН ПОБЕДЫ
+        if (this.winScreenNode) {
+            let script = this.winScreenNode.getComponent('EndScreen');
+            if (script) script.showScreen(true, this.currentScore); // true = победа
+        }
     }
 
     // НОВЫЙ ВСПОМОГАТЕЛЬНЫЙ МЕТОД: Мелькание красным
@@ -258,35 +306,68 @@ onJump(event: EventTouch) {
         // 1. Уничтожаем купюру
         lootNode.destroy(); 
 
-        // 2. Даем от 10 до 50 баксов
+        // 2. Даем от 10 до 50 баксов (это работает ВСЕГДА, независимо от кулдауна)
         let addedMoney = math.randomRangeInt(10, 51); 
         this.currentScore += addedMoney;
         if (this.scoreLabel) {
             this.scoreLabel.string = `$${this.currentScore}`;
         }
 
-        // 3. Каждая 3-я купюра вызывает надпись
-        this.collectedItemsCount++;
-        if (this.collectedItemsCount % 3 === 0) {
-            this.showComboText();
+        // 3. Логика комбо с учетом кулдауна
+        if (!this.isComboCooldown) {
+            this.collectedItemsCount++;
+            
+            // Каждая 3-я купюра вызывает надпись
+            if (this.collectedItemsCount % 3 === 0) {
+                this.showComboText();
+            }
         }
     }
 
     private showComboText() {
         if (!this.comboLabel) return;
         
+        // ВКЛЮЧАЕМ КУЛДАУН: временно замораживаем подсчет новых купюр
+        this.isComboCooldown = true;
+
         let randomWord = this.comboWords[math.randomRangeInt(0, this.comboWords.length)];
         this.comboLabel.string = randomWord;
         this.comboLabel.node.active = true;
-        this.comboLabel.node.scale = new Vec3(0, 0, 0); // Прячем перед анимацией
 
-        // Анимация выпрыгивания текста
+        let opacityComp = this.comboLabel.getComponent(UIOpacity);
+        if (!opacityComp) {
+            opacityComp = this.comboLabel.addComponent(UIOpacity);
+        }
+
+        // Сброс параметров анимации
+        opacityComp.opacity = 255; 
+        this.comboLabel.node.scale = new Vec3(0, 0, 0); 
+        this.comboLabel.node.angle = 0; 
+
+        // АНИМАЦИЯ 1: Выпрыгивание + Тряска
         tween(this.comboLabel.node)
-            .to(0.2, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' })
-            .delay(0.5)
-            .to(0.2, { scale: new Vec3(0, 0, 0) }, { easing: 'backIn' })
-            .call(() => { this.comboLabel.node.active = false; })
+            .to(0.2, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' }) 
+            .to(0.05, { angle: 10 })
+            .to(0.05, { angle: -10 })
+            .to(0.05, { angle: 5 })
+            .to(0.05, { angle: -5 })
+            .to(0.05, { angle: 0 }) 
             .start();
+
+        // АНИМАЦИЯ 2: Медленное растворение
+        tween(opacityComp)
+            .delay(0.6) 
+            .to(0.8, { opacity: 0 }) 
+            .call(() => { 
+                this.comboLabel.node.active = false; 
+            })
+            .start();
+
+        // === ТАЙМЕР КУЛДАУНА ===
+        // Спустя ровно 1 секунду после появления надписи снимаем блокировку счета
+        this.scheduleOnce(() => {
+            this.isComboCooldown = false;
+        }, 1.0); // 1.0 — это время кулдауна в секундах
     }
 
     onDestroy() {
