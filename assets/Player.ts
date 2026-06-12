@@ -1,76 +1,62 @@
-import { _decorator, Component, input, Input, EventTouch, tween, Vec3, Animation, UITransform, Node, Color, UIOpacity, Sprite, Label, math } from 'cc';
+import { _decorator, Component, input, Input, EventTouch, tween, Vec3, Animation, UITransform, Node, Color, UIOpacity, Sprite, Label, math, AudioSource, AudioClip } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('Player')
 export class Player extends Component {
-    @property({ type: Node, tooltip: 'Перетащи сюда ноду loot' })
-    lootContainer: Node = null;
+    // === ЗВУКИ И МУЗЫКА ===
+    @property({ type: AudioSource, tooltip: 'AudioSource для ЗВУКОВ (SFX)' })
+    audioSource: AudioSource = null;
 
-    @property({ type: Label, tooltip: 'Текст очков (Score)' })
-    scoreLabel: Label = null;
+    @property({ type: AudioSource, tooltip: 'AudioSource для МУЗЫКИ (BGM)' })
+    bgmSource: AudioSource = null;
 
-    @property({ type: Label, tooltip: 'Текст комбо (Amazing, Perfect)' })
-    comboLabel: Label = null;
+    @property({ type: AudioClip, tooltip: 'Звук прыжка' })
+    jumpSound: AudioClip = null;
 
+    @property({ type: AudioClip, tooltip: 'Звук урона' })
+    damageSound: AudioClip = null;
+
+    @property({ type: AudioClip, tooltip: 'Звук монетки' })
+    coinSound: AudioClip = null;
+
+    @property({ type: AudioClip, tooltip: 'Звук поражения' })
+    failSound: AudioClip = null;
+
+    @property({ type: AudioClip, tooltip: 'Звук победы' })
+    winSound: AudioClip = null;
+
+    // === ИНТЕРФЕЙС ===
+    @property({ type: Node }) lootContainer: Node = null;
+    @property({ type: Label }) scoreLabel: Label = null;
+    @property({ type: Label }) comboLabel: Label = null;
+    @property({ type: Animation }) playerAnim: Animation = null;
+    @property({ type: Node }) obstaclesContainer: Node = null;
+    @property({ type: Node }) tapTextNode: Node = null;
+    @property({ type: [Node] }) heartsUI: Node[] = [];
+    @property({ type: Node }) handNode: Node = null;
+    @property({ type: Node }) gameManagerNode: Node = null;
+    @property({ type: Node }) winScreenNode: Node = null;
+    @property({ type: Node }) failScreenNode: Node = null;
+    @property({ type: Node }) failOverlayNode: Node = null;
+    @property({ type: Node }) winOverlayNode: Node = null;
+    @property({ type: Node }) tutorialTextNode: Node = null;
+
+    // === ПАРАМЕТРЫ ===
+    @property jumpHeight: number = 150;
+    @property jumpDuration: number = 1.0;
+    @property invincibleDuration: number = 2.0;
+    @property flashColor: Color = new Color(255, 0, 0, 255);
+
+    // === ФЛАГИ ===
     private currentScore: number = 0;
     private collectedItemsCount: number = 0;
     private comboWords: string[] = ["Perfect!", "Amazing!", "Fantastic!", "Awesome!"];
-    
-    @property({ type: Animation, tooltip: 'Ссылка на компонент Animation игрока' })
-    playerAnim: Animation = null;
-
-    @property({ type: Node, tooltip: 'Перетащи сюда ноду obstacles' })
-    obstaclesContainer: Node = null;
-
-    @property({ type: Node, tooltip: 'Перетащи сюда текст Tap to start' })
-    tapTextNode: Node = null;
-
-    @property({ type: [Node], tooltip: 'Перетащи сюда 3 ноды сердечек (от 3-го к 1-му)' })
-    heartsUI: Node[] = [];
-
-    @property
-    jumpHeight: number = 150;
-    
-    @property
-    jumpDuration: number = 1.0;
-
-    @property({ tooltip: 'Продолжительность неуязвимости (в сек)' })
-    invincibleDuration: number = 2.0;
-
-    @property({ tooltip: 'Цвет мелькания при уроне' })
-    flashColor: Color = new Color(255, 0, 0, 255);
-
-    @property({ type: Node, tooltip: 'Нода с рукой' })
-    handNode: Node = null;
-
-    @property({ type: Node, tooltip: 'Нода gamemanager (где висит Spawner)' })
-    gameManagerNode: Node = null;
-
-    @property({ type: Node, tooltip: 'Нода WinScreen' })
-    winScreenNode: Node = null;
-
-    @property({ type: Node, tooltip: 'Нода FailScreen' })
-    failScreenNode: Node = null;
-
-    @property({ type: Node, tooltip: 'Нода с затемнением и иконкой FAIL' })
-    failOverlayNode: Node = null;
-
-    // НОВОЕ: Затемнение для экрана победы
-    @property({ type: Node, tooltip: 'Нода с затемнением для ПОБЕДЫ' })
-    winOverlayNode: Node = null;
-
-    @property({ type: Node, tooltip: 'Текст Click to Jump' })
-    tutorialTextNode: Node = null;
-
-    // --- ФЛАГИ ТУТОРИАЛА И ИГРЫ ---
     private isTutorialDone: boolean = false;
     private isTutorialPaused: boolean = false;
-
     private isJumping: boolean = false;
     private isDead: boolean = false;
     private startY: number = 0;
     public isGameStarted: boolean = false;
-
     private isComboCooldown: boolean = false; 
     private lives: number = 3;
     private isInvincible: boolean = false; 
@@ -79,7 +65,6 @@ export class Player extends Component {
     start() {
         this.startY = this.node.position.y;
         this.spriteComponent = this.getComponent(Sprite); 
-        
         input.on(Input.EventType.TOUCH_START, this.onJump, this);
         this.playAnim('idle'); 
     }
@@ -95,10 +80,13 @@ export class Player extends Component {
             if (this.gameManagerNode) {
                 let spawner = this.gameManagerNode.getComponent('Spawner');
                 if (spawner) spawner.enabled = true;
-
                 let scroller = this.gameManagerNode.getComponent('BgScroller');
                 if (scroller) scroller.enabled = true;
             }
+
+            // ВКЛЮЧАЕМ ФОНОВУЮ МУЗЫКУ ПРИ СТАРТЕ
+            if (this.bgmSource) this.bgmSource.play();
+
             return; 
         }
 
@@ -121,6 +109,11 @@ export class Player extends Component {
         this.isJumping = true;
         this.playAnim('jump');
 
+        // ИГРАЕМ ЗВУК ПРЫЖКА
+        if (this.audioSource && this.jumpSound) {
+            this.audioSource.playOneShot(this.jumpSound, 1.0);
+        }
+
         tween(this.node)
             .to(this.jumpDuration / 2, { position: new Vec3(this.node.position.x, this.startY + this.jumpHeight, 0) }, { easing: 'quadOut' })
             .to(this.jumpDuration / 2, { position: new Vec3(this.node.position.x, this.startY, 0) }, { easing: 'quadIn' })
@@ -140,7 +133,6 @@ export class Player extends Component {
                 if (script) script.enabled = isMoving;
             });
         }
-
         if (this.lootContainer) {
             this.lootContainer.children.forEach(loot => {
                 let script = loot.getComponent('Obstacle'); 
@@ -152,17 +144,14 @@ export class Player extends Component {
     private finishTutorial() {
         this.isTutorialPaused = false;
         this.isTutorialDone = true; 
-
         if (this.tutorialTextNode) this.tutorialTextNode.active = false;
 
         if (this.gameManagerNode) {
             let spawner = this.gameManagerNode.getComponent('Spawner');
             if (spawner) spawner.enabled = true;
-
             let scroller = this.gameManagerNode.getComponent('BgScroller');
             if (scroller) scroller.enabled = true;
         }
-
         this.toggleExistingObjects(true);
     }
 
@@ -201,20 +190,16 @@ export class Player extends Component {
         pBoxForEnemy.width -= pShrink * 2; pBoxForEnemy.height -= pShrink * 2;
 
         for (let obstacle of this.obstaclesContainer.children) {
-            
-            // А. ПРОВЕРКА НА ФИНИШ
             let finishScript = obstacle.getComponent('FinishLine');
             if (finishScript) {
                 let finishBox = obstacle.getComponent(UITransform).getBoundingBoxToWorld();
-                
                 if (playerBox.intersects(finishBox)) {
                     finishScript.playerScript = this; 
                     finishScript.triggerFinish();
                 }
-                continue; // Пропускаем проверку урона для финиша!
+                continue; 
             }
 
-            // Б. ПРОВЕРКА НА УРОН (Обычные враги)
             if (!this.isInvincible) {
                 let obsBox = obstacle.getComponent(UITransform).getBoundingBoxToWorld();
                 let oShrink = 20;
@@ -232,8 +217,11 @@ export class Player extends Component {
         if (this.lootContainer) {
             for (let i = this.lootContainer.children.length - 1; i >= 0; i--) {
                 let lootNode = this.lootContainer.children[i];
-                let lootBox = lootNode.getComponent(UITransform).getBoundingBoxToWorld();
                 
+                // ПРОПУСКАЕМ ТЕ КУПЮРЫ, КОТОРЫЕ УЖЕ ЛЕТЯТ К СЧЕТЧИКУ
+                if (lootNode.name === "collected_loot") continue;
+
+                let lootBox = lootNode.getComponent(UITransform).getBoundingBoxToWorld();
                 if (playerBox.intersects(lootBox)) {
                     this.collectMoney(lootNode);
                 }
@@ -245,12 +233,15 @@ export class Player extends Component {
         if (this.isInvincible || this.isDead) return;
         this.isInvincible = true; 
 
+        // ИГРАЕМ ЗВУК УРОНА
+        if (this.audioSource && this.damageSound) {
+            this.audioSource.playOneShot(this.damageSound, 1.0);
+        }
+
         this.lives--; 
         if (this.lives >= 0) {
             const currentHeartOpacity = this.heartsUI[this.lives].getComponent(UIOpacity);
-            if (currentHeartOpacity) {
-                currentHeartOpacity.opacity = 100; 
-            }
+            if (currentHeartOpacity) currentHeartOpacity.opacity = 100; 
         }
 
         if (this.lives <= 0) {
@@ -267,14 +258,18 @@ export class Player extends Component {
 
         this.scheduleOnce(() => {
             this.isInvincible = false;
-            if (!this.isDead) {
-                this.playAnim('run');
-            }
+            if (!this.isDead) this.playAnim('run');
         }, this.invincibleDuration);
     }
 
     private die() {
         this.isDead = true;
+
+        // ВЫКЛЮЧАЕМ МУЗЫКУ И ИГРАЕМ ЗВУК ПОРАЖЕНИЯ
+        if (this.bgmSource) this.bgmSource.stop();
+        if (this.audioSource && this.failSound) {
+            this.audioSource.playOneShot(this.failSound, 1.0);
+        }
 
         this.heartsUI.forEach(heart => {
             const op = heart.getComponent(UIOpacity);
@@ -291,9 +286,7 @@ export class Player extends Component {
             if (scroller) scroller.enabled = false;
         }
 
-        if (this.failOverlayNode) {
-            this.failOverlayNode.active = true;
-        }
+        if (this.failOverlayNode) this.failOverlayNode.active = true;
 
         this.scheduleOnce(() => {
             if (this.failOverlayNode) this.failOverlayNode.active = false;
@@ -304,15 +297,18 @@ export class Player extends Component {
         }, 1.5);
     }
 
-    // ПОЛНОСТЬЮ ОБНОВЛЕННЫЙ МЕТОД ПОБЕДЫ
     public win() {
         if (this.isDead) return; 
         
-        // 1. МГНОВЕННАЯ ОСТАНОВКА
         this.isGameStarted = false; 
         this.playAnim('idle'); 
 
-        // Останавливаем движение мира
+        // ВЫКЛЮЧАЕМ МУЗЫКУ И ИГРАЕМ ЗВУК ПОБЕДЫ
+        if (this.bgmSource) this.bgmSource.stop();
+        if (this.audioSource && this.winSound) {
+            this.audioSource.playOneShot(this.winSound, 1.0);
+        }
+
         if (this.gameManagerNode) {
             let spawner = this.gameManagerNode.getComponent('Spawner');
             if (spawner) spawner.enabled = false;
@@ -320,15 +316,10 @@ export class Player extends Component {
             if (scroller) scroller.enabled = false;
         }
 
-        // Останавливаем все препятствия и деньги, которые уже ехали
         this.toggleExistingObjects(false);
 
-        // 2. ВКЛЮЧАЕМ ЗАТЕМНЕНИЕ СРАЗУ ЖЕ
-        if (this.winOverlayNode) {
-            this.winOverlayNode.active = true;
-        }
+        if (this.winOverlayNode) this.winOverlayNode.active = true;
 
-        // 3. ЗАДЕРЖКА ДЛЯ КАРТОЧКИ (чтобы конфетти успели бахнуть)
         this.scheduleOnce(() => {
             if (this.winScreenNode) {
                 let script = this.winScreenNode.getComponent('EndScreen');
@@ -354,25 +345,59 @@ export class Player extends Component {
     }
 
     private playAnim(name: string) {
-        if (this.playerAnim) {
-            this.playerAnim.play(name);
-        }
+        if (this.playerAnim) this.playerAnim.play(name);
     }
 
+    // НОВЫЙ КРУТОЙ МЕТОД СОБИРАНИЯ ДЕНЕГ
     private collectMoney(lootNode: Node) {
-        lootNode.destroy(); 
-        let addedMoney = math.randomRangeInt(10, 51); 
-        this.currentScore += addedMoney;
+        // 1. Защита от повторного сбора
+        lootNode.name = "collected_loot"; 
+
+        // 2. Отключаем движение купюры (чтобы она не уехала за экран пока летит)
+        let obsScript = lootNode.getComponent('Obstacle');
+        if (obsScript) obsScript.enabled = false;
+
+        // 3. Вычисляем точку полета (в центр счетчика очков)
+        let targetPos = new Vec3(0, 0, 0);
         if (this.scoreLabel) {
-            this.scoreLabel.string = `$${this.currentScore}`;
+            targetPos = this.scoreLabel.node.worldPosition;
         }
 
-        if (!this.isComboCooldown) {
-            this.collectedItemsCount++;
-            if (this.collectedItemsCount % 3 === 0) {
-                this.showComboText();
-            }
-        }
+        // 4. Запускаем полет с уменьшением масштаба до нуля
+        tween(lootNode)
+            .to(0.4, { worldPosition: targetPos, scale: new Vec3(0, 0, 0) }, { easing: 'backIn' })
+            .call(() => {
+                // Как только долетели - удаляем
+                lootNode.destroy(); 
+                
+                // Даем деньги
+                let addedMoney = math.randomRangeInt(10, 51); 
+                this.currentScore += addedMoney;
+                
+                if (this.scoreLabel) {
+                    this.scoreLabel.string = `$${this.currentScore}`;
+                    
+                    // ТРЯСКА СЧЕТЧИКА (Увеличиваем до 130% и обратно)
+                    tween(this.scoreLabel.node)
+                        .to(0.1, { scale: new Vec3(1.3, 1.3, 1) })
+                        .to(0.1, { scale: new Vec3(1.0, 1.0, 1) })
+                        .start();
+                }
+
+                // Звук монетки при достижении счетчика
+                if (this.audioSource && this.coinSound) {
+                    this.audioSource.playOneShot(this.coinSound, 0.8);
+                }
+
+                // Комбо-надписи
+                if (!this.isComboCooldown) {
+                    this.collectedItemsCount++;
+                    if (this.collectedItemsCount % 3 === 0) {
+                        this.showComboText();
+                    }
+                }
+            })
+            .start();
     }
 
     private showComboText() {
@@ -384,9 +409,7 @@ export class Player extends Component {
         this.comboLabel.node.active = true;
 
         let opacityComp = this.comboLabel.getComponent(UIOpacity);
-        if (!opacityComp) {
-            opacityComp = this.comboLabel.addComponent(UIOpacity);
-        }
+        if (!opacityComp) opacityComp = this.comboLabel.addComponent(UIOpacity);
 
         opacityComp.opacity = 255; 
         this.comboLabel.node.scale = new Vec3(0, 0, 0); 
@@ -404,14 +427,10 @@ export class Player extends Component {
         tween(opacityComp)
             .delay(0.6) 
             .to(0.8, { opacity: 0 }) 
-            .call(() => { 
-                this.comboLabel.node.active = false; 
-            })
+            .call(() => { this.comboLabel.node.active = false; })
             .start();
 
-        this.scheduleOnce(() => {
-            this.isComboCooldown = false;
-        }, 1.0); 
+        this.scheduleOnce(() => { this.isComboCooldown = false; }, 1.0); 
     }
 
     onDestroy() {
