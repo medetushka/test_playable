@@ -1,8 +1,20 @@
-import { _decorator, Component, input, Input, EventTouch, tween, Vec3, Animation, UITransform, Node, director, Color, UIOpacity, Sprite } from 'cc';
+import { _decorator, Component, input, Input, EventTouch, tween, Vec3, Animation, UITransform, Node, director, Color, UIOpacity, Sprite, Label, math } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('Player')
 export class Player extends Component {
+    @property({ type: Node, tooltip: 'Перетащи сюда ноду loot' })
+    lootContainer: Node = null;
+
+    @property({ type: Label, tooltip: 'Текст очков (Score)' })
+    scoreLabel: Label = null;
+
+    @property({ type: Label, tooltip: 'Текст комбо (Amazing, Perfect)' })
+    comboLabel: Label = null;
+
+    private currentScore: number = 0;
+    private collectedItemsCount: number = 0;
+    private comboWords: string[] = ["Perfect!", "Amazing!", "Fantastic!", "Awesome!"];
     @property({ type: Animation, tooltip: 'Ссылка на компонент Animation игрока' })
     playerAnim: Animation = null;
 
@@ -104,19 +116,42 @@ onJump(event: EventTouch) {
     }
 
     update(deltaTime: number) {
-        // ОБНОВИЛИ ЛОГИКУ КОЛЛИЗИЙ:
-        // Если игра не началась, мы мертвы или НЕУЯЗВИМЫ — коллизии не проверяем!
-        if (!this.isGameStarted || this.isDead || this.isInvincible || !this.obstaclesContainer) return;
+        if (!this.isGameStarted || this.isDead || !this.obstaclesContainer) return;
 
         let playerBox = this.node.getComponent(UITransform).getBoundingBoxToWorld();
 
-        for (let obstacle of this.obstaclesContainer.children) {
-            let obsBox = obstacle.getComponent(UITransform).getBoundingBoxToWorld();
-            
-            if (playerBox.intersects(obsBox)) {
-                // Мы больше не уничтожаем врага и не передаем его ноду!
-                this.takeDamage(); 
-                break; 
+        // 1. ПРОВЕРКА ВРАГОВ (с учетом неуязвимости)
+        if (!this.isInvincible) {
+            // Твой старый код сужения хитбоксов и проверки врагов
+            let pShrink = 15;
+            let pBoxForEnemy = playerBox.clone();
+            pBoxForEnemy.x += pShrink; pBoxForEnemy.y += pShrink;
+            pBoxForEnemy.width -= pShrink * 2; pBoxForEnemy.height -= pShrink * 2;
+
+            for (let obstacle of this.obstaclesContainer.children) {
+                let obsBox = obstacle.getComponent(UITransform).getBoundingBoxToWorld();
+                let oShrink = 20;
+                obsBox.x += oShrink; obsBox.y += oShrink;
+                obsBox.width -= oShrink * 2; obsBox.height -= oShrink * 2;
+                
+                if (pBoxForEnemy.intersects(obsBox)) {
+                    this.takeDamage();
+                    break;
+                }
+            }
+        }
+
+        // 2. ПРОВЕРКА ДЕНЕГ (Собираем даже если мигаем красным!)
+        if (this.lootContainer) {
+            // Идем с конца массива, так как будем удалять элементы при сборе
+            for (let i = this.lootContainer.children.length - 1; i >= 0; i--) {
+                let lootNode = this.lootContainer.children[i];
+                let lootBox = lootNode.getComponent(UITransform).getBoundingBoxToWorld();
+                
+                // Для денег хитбоксы не сужаем, чтобы собирать было легко
+                if (playerBox.intersects(lootBox)) {
+                    this.collectMoney(lootNode);
+                }
             }
         }
     }
@@ -218,6 +253,40 @@ onJump(event: EventTouch) {
         if (this.playerAnim) {
             this.playerAnim.play(name);
         }
+    }
+    private collectMoney(lootNode: Node) {
+        // 1. Уничтожаем купюру
+        lootNode.destroy(); 
+
+        // 2. Даем от 10 до 50 баксов
+        let addedMoney = math.randomRangeInt(10, 51); 
+        this.currentScore += addedMoney;
+        if (this.scoreLabel) {
+            this.scoreLabel.string = `$${this.currentScore}`;
+        }
+
+        // 3. Каждая 3-я купюра вызывает надпись
+        this.collectedItemsCount++;
+        if (this.collectedItemsCount % 3 === 0) {
+            this.showComboText();
+        }
+    }
+
+    private showComboText() {
+        if (!this.comboLabel) return;
+        
+        let randomWord = this.comboWords[math.randomRangeInt(0, this.comboWords.length)];
+        this.comboLabel.string = randomWord;
+        this.comboLabel.node.active = true;
+        this.comboLabel.node.scale = new Vec3(0, 0, 0); // Прячем перед анимацией
+
+        // Анимация выпрыгивания текста
+        tween(this.comboLabel.node)
+            .to(0.2, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' })
+            .delay(0.5)
+            .to(0.2, { scale: new Vec3(0, 0, 0) }, { easing: 'backIn' })
+            .call(() => { this.comboLabel.node.active = false; })
+            .start();
     }
 
     onDestroy() {
